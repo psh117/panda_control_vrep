@@ -10,9 +10,9 @@ void ArmController::compute()
 	// Kinematics calculation ------------------------------
 	q_temp_ = q_;
 	RigidBodyDynamics::UpdateKinematicsCustom(*model_, &q_temp_, NULL, NULL);
-	x_ = CalcBodyToBaseCoordinates(*model_, q_, body_id_[DOF - 1], com_pos_[DOF - 1], true);
+	x_ = CalcBodyToBaseCoordinates(*model_, q_, body_id_[DOF - 1], com_position_[DOF - 1], true);
 	rotation_ = CalcBodyWorldOrientation(*model_, q_, body_id_[DOF - 1], true).transpose();
-	CalcPointJacobian6D(*model_, q_, body_id_[DOF - 1], com_pos_[DOF - 1], j_temp_, true);
+	CalcPointJacobian6D(*model_, q_, body_id_[DOF - 1], com_position_[DOF - 1], j_temp_, true);
 	for (int i = 0; i<2; i++)
 		j_.block<3, DOF>(i * 3, 0) = j_temp_.block<3, DOF>(3 - i * 3, 0);
 	// -----------------------------------------------------
@@ -48,7 +48,7 @@ void ArmController::compute()
 	case INIT_JOINT_CTRL:
 	{
 		Vector7d target_position;
-		target_position << 0.0, 0.0, 0.0, M_PI/2., 0.0, 0.0, 0.0;
+		target_position << 0.0, 0.0, 0.0, -M_PI/2., 0.0, 0.0, 0.0;
 		moveJointPosition(target_position, 5.0);
 		break;
 	}
@@ -297,56 +297,60 @@ void ArmController::initModel()
     model_->gravity = Vector3d(0., 0, -GRAVITY);
 
     double mass[DOF];
-    mass[0] = 6.98;
+    mass[0] = 1.0;
     mass[1] = 1.0;
-    mass[2] = 5.23;
-    mass[3] = 6.99;
-    mass[4] = 3.3;
-    mass[5] = 2.59;
+    mass[2] = 1.0;
+    mass[3] = 1.0;
+    mass[4] = 1.0;
+    mass[5] = 1.0;
     mass[6] = 1.0;
 
     Vector3d axis[DOF];
-    axis[0] = Vector3d(0.0, 0.0, -1.0);
-    axis[1] = Vector3d(0, -1, 0);
-    axis[2] = Vector3d(0, 0, -1);
-    axis[3] = Vector3d(0, 1, 0);
-    axis[4] = Vector3d(0, 0, -1);
-    axis[5] = Vector3d(0, -1, 0);
-    axis[6] = Vector3d(0, 0, -1);
+	axis[0] = Eigen::Vector3d::UnitZ();
+	axis[1] = Eigen::Vector3d::UnitY();
+	axis[2] = Eigen::Vector3d::UnitZ();
+	axis[3] = -1.0*Eigen::Vector3d::UnitY();
+	axis[4] = Eigen::Vector3d::UnitZ();
+	axis[5] = -1.0*Eigen::Vector3d::UnitY();
+	axis[6] = -1.0*Eigen::Vector3d::UnitZ();
 
+
+	Eigen::Vector3d global_joint_position[DOF];
+
+	global_joint_position[0] = Eigen::Vector3d(0.0, 0.0, 0.3330);
+	global_joint_position[1] = global_joint_position[0];
+	global_joint_position[2] = Eigen::Vector3d(0.0, 0.0, 0.6490);
+	global_joint_position[3] = Eigen::Vector3d(0.0825, 0.0, 0.6490);
+	global_joint_position[4] = Eigen::Vector3d(0.0, 0.0, 1.0330);
+	global_joint_position[5] = Eigen::Vector3d(0.0, 0.0, 1.0330);
+	global_joint_position[6] = Eigen::Vector3d(0.0880, 0.0, 1.0330);
+
+	joint_posision_[0] = global_joint_position[0];
+	for (int i = 1; i < DOF; i++)
+		joint_posision_[i] = global_joint_position[i] - global_joint_position[i - 1];
+
+	com_position_[0] = Vector3d(0.000096, -0.0346, 0.2575);
+	com_position_[1] = Vector3d(0.0002, 0.0344, 0.4094);
+	com_position_[2] = Vector3d(0.0334, 0.0266, 0.6076);
+	com_position_[3] = Vector3d(0.0331, -0.0266, 0.6914);
+	com_position_[4] = Vector3d(0.0013, 0.0423, 0.9243);
+	com_position_[5] = Vector3d(0.0421, -0.0103, 1.0482);
+	com_position_[6] = Vector3d(0.1, -0.0120, 0.9536);
+
+	for (int i = 0; i < DOF; i++)
+		com_position_[i] -= global_joint_position[i];
 
     Math::Vector3d inertia[DOF];
-    inertia[0] = Vector3d(0.02854672, 0.02411810, 0.01684034);
-    inertia[1] = Vector3d(0.00262692, 0.00281948, 0.00214297);
-    inertia[2] = Vector3d(0.04197161, 0.00856546, 0.04186745);
-    inertia[3] = Vector3d(0.04906429, 0.03081099, 0.02803779);
-    inertia[4] = Vector3d(0.00935279, 0.00485657, 0.00838836);
-    inertia[5] = Vector3d(0.00684717, 0.00659219, 0.00323356);
-    inertia[6] = Vector3d(0.00200000, 0.00200000, 0.00200000);
-
-    joint_pos_[0] = Vector3d(0.0, 0.0, 0.0);
-    joint_pos_[1] = Vector3d(0.0, 0.0, 0.223) - joint_pos_[0];
-    joint_pos_[2] = Vector3d(0.0, 0.118, 0.223) - joint_pos_[1] - joint_pos_[0];
-    joint_pos_[3] = Vector3d(0.0, 0.118, 0.5634) - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    joint_pos_[4] = Vector3d(0.0, 0.0, 0.5634) - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    joint_pos_[5] = Vector3d(0.0, 0.0, 0.8634) - joint_pos_[4] - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    joint_pos_[6] = Vector3d(0.0, 0.112, 0.8634) - joint_pos_[5] - joint_pos_[4] - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-
-    com_pos_[0] = Vector3d(-0.00006, 0.04592, 0.20411) - joint_pos_[0];
-    com_pos_[1] = Vector3d(0.00007, 0.12869, 0.24008) - joint_pos_[1] - joint_pos_[0];
-    com_pos_[2] = Vector3d(0.00043, 0.1205, 0.38421) - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    com_pos_[3] = Vector3d(-0.00008, 0.05518, 0.59866) - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    com_pos_[4] = Vector3d(0.0, 0.01606, 0.74571) - joint_pos_[4] - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    com_pos_[5] = Vector3d(0.00002, 0.11355, 0.91399) - joint_pos_[5] - joint_pos_[4] - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
-    com_pos_[6] = Vector3d(-0.0, 0.112, 0.9246) - joint_pos_[6] - joint_pos_[5] - joint_pos_[4] - joint_pos_[3] - joint_pos_[2] - joint_pos_[1] - joint_pos_[0];
+	for (int i = 0; i < DOF; i++)
+		inertia[i] = Eigen::Vector3d::Identity() * 0.001;
 
     for (int i = 0; i < DOF; i++) {
-        body_[i] = Body(mass[i], com_pos_[i], inertia[i]);
+        body_[i] = Body(mass[i], com_position_[i], inertia[i]);
         joint_[i] = Joint(JointTypeRevolute, axis[i]);
         if (i == 0)
-            body_id_[i] = model_->AddBody(0, Math::Xtrans(joint_pos_[i]), joint_[i], body_[i]);
+            body_id_[i] = model_->AddBody(0, Math::Xtrans(joint_posision_[i]), joint_[i], body_[i]);
         else
-            body_id_[i] = model_->AddBody(body_id_[i - 1], Math::Xtrans(joint_pos_[i]), joint_[i], body_[i]);
+            body_id_[i] = model_->AddBody(body_id_[i - 1], Math::Xtrans(joint_posision_[i]), joint_[i], body_[i]);
     }
 }
 

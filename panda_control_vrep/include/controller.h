@@ -85,8 +85,8 @@ private:
 
 
 	// for robot model construction
-    Math::Vector3d com_pos_[DOF];
-    Vector3d joint_pos_[DOF];
+    Math::Vector3d com_position_[DOF];
+    Vector3d joint_posision_[DOF];
 
     shared_ptr<Model> model_;
     unsigned int body_id_[DOF];
