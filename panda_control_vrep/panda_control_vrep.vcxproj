@@ -135,6 +135,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\3rdparty\vrep\remoteApi\extApi.c" />
+    <ClCompile Include="..\3rdparty\vrep\remoteApi\extApiPlatform.c" />
     <ClCompile Include="src\controller.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\vrep_bridge.cpp" />
