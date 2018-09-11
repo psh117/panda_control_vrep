@@ -40,17 +40,16 @@ int main()
 			switch (key)
 			{
 				// Implement with user input
-
 			case 'i':
 				ac.setMode("joint_ctrl_init");
 				break;
 			case 'h':
 				ac.setMode("joint_ctrl_home");
 				break;
-
 			case 't':
 				ac.setMode("torque_ctrl_dynamic");
 				break;
+
 
 			case '\t':
 				if (is_simulation_run) {

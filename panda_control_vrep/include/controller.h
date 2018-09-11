@@ -87,6 +87,7 @@ class ArmController
 private:
     void printState();
 	void moveJointPosition(const Vector7d &target_pos, double duration);
+	void moveJointPositionTorque(const Vector7d &target_pos, double duration);
 
 public:
 	void readData(const Vector7d &position, const Vector7d &velocity, const Vector7d &torque);

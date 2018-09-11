@@ -60,26 +60,9 @@ void ArmController::compute()
 	}
 	else if (control_mode_ == "torque_ctrl_dynamic")
 	{
-		const double dynamic_kp = 4;
-		const double dynamic_kv = 0.4;
 		Vector7d target_position;
-		Vector7d q_dot_desired;
 		target_position << 0.0, 0.0, 0.0, -M_PI / 2., 0.0, 0.0, M_PI / 4;
-		double duration = 5.0;
-
-		q_desired_ = DyrosMath::cubicVector<7>(play_time_,
-			control_start_time_,
-			control_start_time_ + duration, q_init_, target_position, Vector7d::Zero(), Vector7d::Zero());
-
-		for (int i = 0; i < 7; i++)
-		{
-			q_dot_desired(i) = DyrosMath::cubicDot(play_time_, control_start_time_,
-				control_start_time_ + duration, q_init_(i), target_position(i), 0, 0, hz_);
-		}
-		Matrix7d kp, kv;
-		kp = dynamic_kp * Matrix7d::Identity();
-		kv = dynamic_kv * Matrix7d::Identity();
-		torque_desired_ = m_ * (kp * (q_desired_ - q_) + kv * (q_dot_desired - qdot_)) + g_;
+		moveJointPositionTorque(target_position, 5.0);
 	}
 	else
 	{
@@ -100,6 +83,27 @@ void ArmController::moveJointPosition(const Vector7d &target_pos, double duratio
 	q_desired_ = DyrosMath::cubicVector<7>(play_time_,
 		control_start_time_,
 		control_start_time_ + duration, q_init_, target_pos, zero_vector, zero_vector);
+}
+
+void ArmController::moveJointPositionTorque(const Vector7d &target_position, double duration)
+{
+	const double dynamic_kp = 4;
+	const double dynamic_kv = 0.4;
+	Vector7d q_dot_desired;
+
+	q_desired_ = DyrosMath::cubicVector<7>(play_time_,
+		control_start_time_,
+		control_start_time_ + duration, q_init_, target_position, Vector7d::Zero(), Vector7d::Zero());
+
+	for (int i = 0; i < 7; i++)
+	{
+		q_dot_desired(i) = DyrosMath::cubicDot(play_time_, control_start_time_,
+			control_start_time_ + duration, q_init_(i), target_position(i), 0, 0, hz_);
+	}
+	Matrix7d kp, kv;
+	kp = dynamic_kp * Matrix7d::Identity();
+	kv = dynamic_kv * Matrix7d::Identity();
+	torque_desired_ = m_ * (kp * (q_desired_ - q_) + kv * (q_dot_desired - qdot_)) + g_;
 }
 
 void ArmController::printState()
