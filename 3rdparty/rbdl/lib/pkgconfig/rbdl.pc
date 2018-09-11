@@ -1,0 +1,13 @@
+prefix=C:/Program Files/RBDL
+libdir=C:/Program Files/RBDL/lib
+includedir=C:/Program Files/RBDL/include
+
+Name: RBDL
+Description: Rigid Body Dynamics Library
+URL: http://rbdl.bitbucket.org/
+Version: 2.5.0
+Requires: eigen3
+Conflicts:
+Libs: -L${libdir} -lrbdl -Wl,-rpath ${libdir}
+Libs.private:
+Cflags: -I${includedir}
