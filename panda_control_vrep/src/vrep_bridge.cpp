@@ -1,9 +1,11 @@
 #include "vrep_bridge.h"
 
-VRepBridge::VRepBridge()
+VRepBridge::VRepBridge(ControlMode mode)
 {
+	control_mode_ = mode;
 	simInit();
 	getHandle();
+	desired_torque_.setZero();
 }
 VRepBridge::~VRepBridge()
 {
@@ -17,7 +19,6 @@ bool VRepBridge::simConnectionCheck()
 }
 void VRepBridge::simLoop()
 {
-	//loopCallbackFunc();
 	tick_++;
 	simxSynchronousTrigger(clientID_);
 }
@@ -77,25 +78,34 @@ void VRepBridge::simInit()
 
 void VRepBridge::write()
 {
-	for (size_t i = 0; i < DOF; i++)
+	switch (control_mode_)
 	{
-		simxSetJointTargetPosition(clientID_, motorHandle_[i], desired_q_(i), simx_opmode_streaming);
-	}
-	/*
-	for (size_t i = 0; i < MOTORNUM; i++)
+	case CTRL_POSITION:
 	{
-		simxFloat velocityLimit;
-
-		if (desired_torque_(i) >= 0.0)
-			velocityLimit = 10e10f;
-		else
-			velocityLimit = -10e10f;
-
-		simxSetJointTargetVelocity(clientID_, motorHandle_[i], velocityLimit, simx_opmode_streaming);
-		simxSetJointForce(clientID_, motorHandle_[i], static_cast<float>(abs(desired_torque_(i))), simx_opmode_streaming);
-
+		for (size_t i = 0; i < DOF; i++)
+		{
+			simxSetJointTargetPosition(clientID_, motorHandle_[i], desired_q_(i), simx_opmode_streaming);
+		}
+		break;
 	}
-	*/
+	case CTRL_TORQUE:
+	{
+		for (size_t i = 0; i < DOF; i++)
+		{
+			simxFloat velocityLimit;
+
+			if (desired_torque_(i) >= 0.0)
+				velocityLimit = 10e10f;
+			else
+				velocityLimit = -10e10f;
+
+			simxSetJointTargetVelocity(clientID_, motorHandle_[i], velocityLimit, simx_opmode_streaming);
+			simxSetJointForce(clientID_, motorHandle_[i], static_cast<float>(abs(desired_torque_(i))), simx_opmode_streaming);
+
+		}
+		break;
+	}
+	}
 }
 void VRepBridge::read()
 {
@@ -107,6 +117,26 @@ void VRepBridge::read()
 		simxGetObjectFloatParameter(clientID_, motorHandle_[i], 2012, &data, simx_opmode_streaming);
 		current_q_dot_(i) = data;
 	}
+}
+
+void VRepBridge::setDesiredPosition(const Eigen::Matrix<double, DOF, 1>& desired_q)
+{
+	desired_q_ = desired_q;
+}
+
+void VRepBridge::setDesiredTorque(const Eigen::Matrix<double, DOF, 1>& desired_torque)
+{
+	desired_torque_ = desired_torque;
+}
+
+const Eigen::Matrix<double, DOF, 1>& VRepBridge::getPosition()
+{
+	return current_q_;
+}
+
+const Eigen::Matrix<double, DOF, 1>& VRepBridge::getVelocity()
+{
+	return current_q_dot_;
 }
 
 

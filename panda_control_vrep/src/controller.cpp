@@ -8,15 +8,28 @@
 void ArmController::compute()
 {
 	// Kinematics calculation ------------------------------
+
 	q_temp_ = q_;
-	RigidBodyDynamics::UpdateKinematicsCustom(*model_, &q_temp_, NULL, NULL);
+	qdot_temp_ = qdot_;
+
+	RigidBodyDynamics::UpdateKinematicsCustom(*model_, &q_temp_, &qdot_temp_, NULL);
 	x_ = CalcBodyToBaseCoordinates(*model_, q_, body_id_[DOF - 1], com_position_[DOF - 1], true);
 	rotation_ = CalcBodyWorldOrientation(*model_, q_, body_id_[DOF - 1], true).transpose();
 	CalcPointJacobian6D(*model_, q_, body_id_[DOF - 1], com_position_[DOF - 1], j_temp_, true);
+
+	NonlinearEffects(*model_, q_, Vector7d::Zero(), g_temp_);
+	CompositeRigidBodyAlgorithm(*model_, q_, m_temp_, true);
+
+	g_ = g_temp_;
+	m_ = m_temp_;
+	m_inverse_ = m_.inverse();
+
 	for (int i = 0; i<2; i++)
 		j_.block<3, DOF>(i * 3, 0) = j_temp_.block<3, DOF>(3 - i * 3, 0);
 	// -----------------------------------------------------
 	j_v_ = j_.block < 3, DOF>(0, 0);
+
+	x_dot_ = j_ * qdot_;
 
 	if (is_mode_changed_)
 	{
@@ -33,192 +46,50 @@ void ArmController::compute()
 		rotation_init_ = rotation_;
 	}
 
-	switch (control_mode_)
-	{
-		// TODO: implement this
-	case NONE:
-		break;
-	case HOME_JOINT_CTRL:
+	if (control_mode_ == "joint_ctrl_home")
 	{
 		Vector7d target_position;
-		target_position << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+		target_position << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, M_PI / 4;
 		moveJointPosition(target_position, 5.0);
-		break;
 	}
-	case INIT_JOINT_CTRL:
+	else if(control_mode_ == "joint_ctrl_init")
 	{
 		Vector7d target_position;
-		target_position << 0.0, 0.0, 0.0, -M_PI/2., 0.0, 0.0, 0.0;
+		target_position << 0.0, 0.0, 0.0, -M_PI / 2., 0.0, 0.0, M_PI / 4;
 		moveJointPosition(target_position, 5.0);
-		break;
 	}
-	case SIMPLE_JACOBIAN:
+	else if (control_mode_ == "torque_ctrl_dynamic")
 	{
-		Vector3d x_desired;
-		Vector3d x_dot_desired;
+		const double dynamic_kp = 4;
+		const double dynamic_kv = 0.4;
+		Vector7d target_position;
+		Vector7d q_dot_desired;
+		target_position << 0.0, 0.0, 0.0, -M_PI / 2., 0.0, 0.0, M_PI / 4;
 		double duration = 5.0;
-		x_desired << 0.6, 0.2, 0.1;
-		x_cubic_ = DyrosMath::cubicVector<3>(play_time_,
-			control_start_time_, control_start_time_ + duration,
-			x_init_, x_desired, Vector3d::Zero(), Vector3d::Zero());
-		Matrix<double, 7, 3> j_v_inverse;
-		j_v_inverse = j_v_.transpose() * (j_v_ * j_v_.transpose()).inverse();
 
-		x_dot_desired = (x_cubic_ - x_cubic_old_);
+		q_desired_ = DyrosMath::cubicVector<7>(play_time_,
+			control_start_time_,
+			control_start_time_ + duration, q_init_, target_position, Vector7d::Zero(), Vector7d::Zero());
 
-		x_cubic_old_ = x_cubic_;
-		q_desired_ = q_ + j_v_inverse * x_dot_desired;
-
-		if (play_time_ <= control_start_time_ + 7.0)
+		for (int i = 0; i < 7; i++)
 		{
-			for (int i = 0; i < 7; i++)
-			{
-				simple_jacobian_file_ << q_(i) << "\t";
-			}
-			for (int i = 0; i < 3; i++)
-			{
-				simple_jacobian_file_ << x_(i) << "\t";
-			}
-			simple_jacobian_file_ << endl;
+			q_dot_desired(i) = DyrosMath::cubicDot(play_time_, control_start_time_,
+				control_start_time_ + duration, q_init_(i), target_position(i), 0, 0, hz_);
 		}
-		break;
+		Matrix7d kp, kv;
+		kp = dynamic_kp * Matrix7d::Identity();
+		kv = dynamic_kv * Matrix7d::Identity();
+		torque_desired_ = m_ * (kp * (q_desired_ - q_) + kv * (q_dot_desired - qdot_)) + g_;
 	}
-	case FEEDBACK_JACOBIAN:
+	else
 	{
-		Vector3d x_desired;
-		double duration = 5.0;
-		x_desired << 0.6, 0.2, 0.1;
-		x_cubic_ = DyrosMath::cubicVector<3>(play_time_,
-			control_start_time_, control_start_time_ + duration,
-			x_init_, x_desired, Vector3d::Zero(), Vector3d::Zero());
-		Matrix<double, 7, 3> j_v_inverse;
-		j_v_inverse = j_v_.transpose() * (j_v_ * j_v_.transpose()).inverse();
-		q_desired_ = q_ + j_v_inverse * (x_cubic_ - x_);
-		if (play_time_ <= control_start_time_ + 7.0)
-		{
-			for (int i = 0; i < 7; i++)
-			{
-				feedback_jacobian_file_ << q_(i) << "\t";
-			}
-			for (int i = 0; i < 3; i++)
-			{
-				feedback_jacobian_file_ << x_(i) << "\t";
-			}
-			feedback_jacobian_file_ << endl;
-		}
-		break;
-	}
-	case CLIK:
-	{
-		Vector3d x_desired;
-		Vector3d x_dot_desired;
-		Matrix3d kp;
-		kp = Matrix3d::Identity() * 1.0;
-
-		double duration = 5.0;
-		x_desired << 0.6, 0.2, 0.1;
-		x_cubic_ = DyrosMath::cubicVector<3>(play_time_,
-			control_start_time_, control_start_time_ + duration,
-			x_init_, x_desired, Vector3d::Zero(), Vector3d::Zero());
-		Matrix<double, 7, 3> j_v_inverse;
-		x_dot_desired = (x_cubic_ - x_cubic_old_);
-		x_cubic_old_ = x_cubic_;
-		j_v_inverse = j_v_.transpose() * (j_v_ * j_v_.transpose()).inverse();
-		q_desired_ = q_ + j_v_inverse * (x_dot_desired + kp * (x_cubic_ - x_));
-		if (play_time_ <= control_start_time_ + 7.0)
-		{
-			for (int i = 0; i < 7; i++)
-			{
-				clik_file_ << q_(i) << "\t";
-			}
-			for (int i = 0; i < 3; i++)
-			{
-				clik_file_ << x_(i) << "\t";
-			}
-			clik_file_ << endl;
-		}
-		break;
-	}
-	case CLIK_WITH_WEIGHTED_PSEUDO_INV:
-	{
-		Vector3d x_desired;
-		Vector3d x_dot_desired;
-		Matrix7d w;
-		Matrix3d kp;
-		kp = Matrix3d::Identity() * 1.0;
-		w = Matrix7d::Identity();
-		w(3, 3) = 0.001;
-
-		double duration = 5.0;
-		x_desired << 0.6, 0.2, 0.1;
-		x_cubic_ = DyrosMath::cubicVector<3>(play_time_,
-			control_start_time_, control_start_time_ + duration,
-			x_init_, x_desired, Vector3d::Zero(), Vector3d::Zero());
-		Matrix<double, 7, 3> j_v_inverse;
-		x_dot_desired = (x_cubic_ - x_cubic_old_);
-		x_cubic_old_ = x_cubic_;
-		j_v_inverse = w * j_v_.transpose() * (j_v_ * w * j_v_.transpose()).inverse();
-		q_desired_ = q_ + j_v_inverse * (x_dot_desired + kp * (x_cubic_ - x_));
-		if (play_time_ <= control_start_time_ + 7.0)
-		{
-			for (int i = 0; i < 7; i++)
-			{
-				clik_weight_file_ << q_(i) << "\t";
-			}
-			for (int i = 0; i < 3; i++)
-			{
-				clik_weight_file_ << x_(i) << "\t";
-			}
-			clik_weight_file_ << endl;
-		}
-		break;
-	}
-	default:
-		break;
+		torque_desired_ = g_;
 	}
 
 	printState();
 
 	tick_++;
 	play_time_ = tick_ / hz_;	// second
-}
-
-void ArmController::setMode(ARM_CONTROL_MODE mode)
-{
-    is_mode_changed_ = true;
-    control_mode_ = mode;
-    cout << "Current mode (changed) : " ;
-
-    switch (control_mode_)
-    {
-
-	// TODO: Implement this if you want
-    case NONE:
-        cout << "NONE";
-        break;
-	case HOME_JOINT_CTRL:
-		cout << "HOME_JOINT_CTRL";
-		break;
-	case INIT_JOINT_CTRL:
-		cout << "INIT_JOINT_CTRL";
-		break;
-	case SIMPLE_JACOBIAN:
-		cout << "SIMPLE_JACOBIAN";
-		break;
-	case FEEDBACK_JACOBIAN:
-		cout << "FEEDBACK_JACOBIAN";
-		break;
-	case CLIK:
-		cout << "CLIK";
-		break;
-	case CLIK_WITH_WEIGHTED_PSEUDO_INV:
-		cout << "CLIK_WITH_WEIGHTED_PSEUDO_INV";
-		break;
-    default:
-        cout << "???";
-        break;
-    }
-    cout << endl;
 }
 
 
@@ -231,48 +102,25 @@ void ArmController::moveJointPosition(const Vector7d &target_pos, double duratio
 		control_start_time_ + duration, q_init_, target_pos, zero_vector, zero_vector);
 }
 
-
-void ArmController::initFileDebug()
-{
-	simple_jacobian_file_.open("simple_jacobian.txt");
-	feedback_jacobian_file_.open("feedback_jacobian.txt");
-	clik_file_.open("clik.txt");
-	clik_weight_file_.open("clik_weight.txt");
-}
-
-
 void ArmController::printState()
 {
 	// TODO: Modify this method to debug your code
 
 	static int DBG_CNT = 0;
-	if (DBG_CNT++ > hz_ / 2.)
+	if (DBG_CNT++ > hz_ / 20.)
 	{
 		DBG_CNT = 0;
 
-		cout << "q now:\t";
-		for (int i = 0; i<dof_; i++)
-		{
-			cout << std::fixed << std::setprecision(3) << q_(i) << '\t';
-		}
-		cout << endl;
-
+		cout << "q now    :\t";
+		cout << std::fixed << std::setprecision(3) << q_.transpose() << endl;
 		cout << "q desired:\t";
-		for (int i = 0; i<dof_; i++)
-		{
-			cout << std::fixed << std::setprecision(3) << q_desired_(i) << '\t';
-		}
-		cout << endl;
-
-		cout << "t:\t";
-		for (int i = 0; i<dof_; i++)
-		{
-			cout << std::fixed << std::setprecision(3) << torque_(i) << '\t';
-		}
-		cout << endl;
-
-		cout << " [taskState_ x] \n";
-		cout << x_ << endl;
+		cout << std::fixed << std::setprecision(3) << q_desired_.transpose() << endl;
+		cout << "t        :\t";
+		cout << std::fixed << std::setprecision(3) << torque_.transpose() << endl;
+		cout << "t desired:\t";
+		cout << std::fixed << std::setprecision(3) << torque_desired_.transpose() << endl;
+		cout << "x        :\t";
+		cout << x_.transpose() << endl;
 	}
 }
 
@@ -280,14 +128,26 @@ void ArmController::printState()
 
 // Controller Core Methods ----------------------------
 
+void ArmController::setMode(const std::string & mode)
+{
+	is_mode_changed_ = true;
+	control_mode_ = mode;
+	cout << "Current mode (changed) : " << mode << endl;
+}
 void ArmController::initDimension()
 {
-    dof_ = DOF;
+	dof_ = DOF;
 	q_temp_.resize(DOF);
 	j_temp_.resize(6, DOF);
 
+	qddot_.setZero();
+
 	x_target_.setZero();
 	q_desired_.setZero();
+	torque_desired_.setZero();
+
+	g_temp_.resize(DOF);
+	m_temp_.resize(DOF, DOF);
 }
 
 void ArmController::initModel()
@@ -373,17 +233,14 @@ void ArmController::readData(const Vector7d &position, const Vector7d &velocity)
 	}
 }
 
-void ArmController::writeData(Vector7d &position, Vector7d &velocity, Vector7d &torque)
+const Vector7d & ArmController::getDesiredPosition()
 {
-	for (size_t i = 0; i < dof_; i++)
-	{
-		position(i) = q_desired_(i);
-	}
-
+	return q_desired_;
 }
-void ArmController::writeData(Vector7d &position)
+
+const Vector7d & ArmController::getDesiredTorque()
 {
-	position = q_desired_;
+	return torque_desired_;
 }
 
 

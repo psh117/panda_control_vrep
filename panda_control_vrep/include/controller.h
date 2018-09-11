@@ -16,22 +16,6 @@ using namespace Eigen;
 
 class ArmController
 {
-public:
-    enum ARM_CONTROL_MODE
-    {
-		NONE,
-		HOME_JOINT_CTRL,
-		INIT_JOINT_CTRL,
-		SIMPLE_JACOBIAN,
-		FEEDBACK_JACOBIAN,
-		CLIK,
-		CLIK_WITH_WEIGHTED_PSEUDO_INV,
-
-		// TODO: implement your own mode
-		
-    };
-
-private:
     size_t dof_;
 
 	// Initial state
@@ -47,6 +31,7 @@ private:
 
 	// Control value (position controlled)
 	Vector7d q_desired_; // Control value
+	Vector7d torque_desired_;
 
 	// Task space
 	Vector3d x_init_;
@@ -57,14 +42,23 @@ private:
 	Vector6d x_dot_; // 6D (linear + angular)
 	Vector6d x_error_; 
 
+	// Dynamics
+	Vector7d g_; // Gravity torque
+	Matrix7d m_; // Mass matrix
+	Matrix7d m_inverse_; // Inverse of mass matrix
+
 	// For controller
 	Matrix<double,3,7> j_v_;	// Linear velocity Jacobian matrix
 	Matrix<double, 3, 7> j_w_;	// Angular veolicty Jacobain matrix
 	Matrix<double, 6, 7> j_;	// Full basic Jacobian matrix
 	Matrix<double, 7, 6> j_inverse_;	// Jacobain inverse storage 
-	
-	VectorXd q_temp_;	// For RBDL bug
-	MatrixXd j_temp_;	// For RBDL bug
+
+	VectorXd q_temp_;	// For RBDL 
+	VectorXd qdot_temp_;
+	VectorXd qddot_temp_;
+	MatrixXd j_temp_;	// For RBDL 
+	MatrixXd m_temp_;
+	VectorXd g_temp_;   // For RBDL 
 
 	Vector7d q_cubic_;
 	Vector7d q_target_;
@@ -78,11 +72,8 @@ private:
     double hz_;
     double control_start_time_;
 
-    ARM_CONTROL_MODE control_mode_;
+    std::string control_mode_;
     bool is_mode_changed_;
-
-
-
 
 	// for robot model construction
     Math::Vector3d com_position_[DOF];
@@ -93,32 +84,25 @@ private:
     Body body_[DOF];
     Joint joint_[DOF];
 
-
-	ofstream simple_jacobian_file_;
-	ofstream feedback_jacobian_file_;
-	ofstream clik_file_;
-	ofstream clik_weight_file_;
-
 private:
-	void initFileDebug();
     void printState();
 	void moveJointPosition(const Vector7d &target_pos, double duration);
 
 public:
 	void readData(const Vector7d &position, const Vector7d &velocity, const Vector7d &torque);
 	void readData(const Vector7d &position, const Vector7d &velocity);
-	void writeData(Vector7d &position, Vector7d &velocity, Vector7d &torque);
-	void writeData(Vector7d &position);
+	const Vector7d & getDesiredPosition();
+	const Vector7d & getDesiredTorque();
 
 public:
 		ArmController(double hz) :
-		tick_(0), play_time_(0.0), hz_(hz), control_mode_(NONE), is_mode_changed_(false)
+		tick_(0), play_time_(0.0), hz_(hz), control_mode_("none"), is_mode_changed_(false)
 	{
-			initDimension(); initModel(); initFileDebug();
+			initDimension(); initModel();
 	}
 
 
-    void setMode(ARM_CONTROL_MODE mode);
+    void setMode(const std::string & mode);
     void initDimension();
     void initModel();
     void initPosition();

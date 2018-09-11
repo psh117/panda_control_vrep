@@ -11,8 +11,9 @@ using namespace std;
 
 int main()
 {
-	VRepBridge vb;
-	const double hz = 100;
+	VRepBridge vb(VRepBridge::CTRL_TORQUE); // Torque controlled
+	// VRepBridge vb(VRepBridge::CTRL_POSITION); // Position controlled 
+	const double hz = 1000;
 	ArmController ac(hz);
 	bool is_simulation_run = true;
 	bool exit_flag = false;
@@ -21,12 +22,15 @@ int main()
 	while (vb.simConnectionCheck() && !exit_flag)
 	{
 		vb.read();
-		ac.readData(vb.current_q_, vb.current_q_dot_);
+		ac.readData(vb.getPosition(), vb.getVelocity());
 		if (is_first)
 		{
-			cout << vb.current_q_ << endl;
+			vb.simLoop();
+			vb.read();
+			ac.readData(vb.getPosition(), vb.getVelocity());
+			cout << "Initial q: " << vb.getPosition().transpose() << endl;
 			is_first = false;
-			//ac.initPosition();
+			ac.initPosition();
 		}
 
 		if (_kbhit())
@@ -38,30 +42,14 @@ int main()
 				// Implement with user input
 
 			case 'i':
-				cout << "Joint control to initial position" << endl;
-				ac.setMode(ArmController::INIT_JOINT_CTRL);
+				ac.setMode("joint_ctrl_init");
 				break;
-
 			case 'h':
-				cout << "Joint control to home position" << endl;
-				ac.setMode(ArmController::HOME_JOINT_CTRL);
+				ac.setMode("joint_ctrl_home");
 				break;
 
-			case 's':
-				//cout << "Joint control to home position" << endl;
-				ac.setMode(ArmController::SIMPLE_JACOBIAN);
-				break;
-			case 'f':
-				//cout << "Joint control to home position" << endl;
-				ac.setMode(ArmController::FEEDBACK_JACOBIAN);
-				break;
-			case 'c':
-				//cout << "Joint control to home position" << endl;
-				ac.setMode(ArmController::CLIK);
-				break;
-			case 'w':
-				//cout << "Joint control to home position" << endl;
-				ac.setMode(ArmController::CLIK_WITH_WEIGHTED_PSEUDO_INV);
+			case 't':
+				ac.setMode("torque_ctrl_dynamic");
 				break;
 
 			case '\t':
@@ -85,7 +73,8 @@ int main()
 
 		if (is_simulation_run) {
 			ac.compute();
-			ac.writeData(vb.desired_q_);
+			vb.setDesiredPosition(ac.getDesiredPosition());
+			vb.setDesiredTorque(ac.getDesiredTorque());
 		
 			vb.write();
 			vb.simLoop();
